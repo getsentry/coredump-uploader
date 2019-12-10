@@ -6,6 +6,7 @@ import subprocess
 import sys
 import os
 import click
+import time
 
 
 class Frame:
@@ -46,16 +47,15 @@ _frame_re = re.compile(
     #address of instruction
     (?P<instruction_addr>
        0[xX][a-fA-F0-9]+
-    )*
-    
-    #name of function
-    \sin\s 
-    (?P<name_of_function>
-        .*
     )
+    #name of function
+    (\sin)? \s?
+    (?P<name_of_function>
+        [a-zA-z]+
+    )?
 
     #path from the file
-    \s\(\)(\sat\s)?
+    (\s\(\))?  (\sat\s)?
     (?P<path>
      .*\.c
     )?
@@ -94,11 +94,13 @@ _image_re = re.compile(
         0[xX][0-9A-F-a-f]+
     )*
 
-    #Code file
-    (\s|\s\.\s\-\s)
+    #Code File
+    (\s|\s\.\s\-\s)?
+    (\.\s)?   
+    (-\s)*
     (?P<code_file>
-        [\/|.\/][\w|\S]+|\S+\.\S+
-    )
+        [\/|.\/][\w|\S]+|\S+\.\S+|[a-zA-Z]*
+    )?
 """
 )
 
@@ -114,41 +116,41 @@ def error(message):
 
 def get_frame(gdb_output):
     """Parses the output from gdb  """
-
     frame = Frame()
     temp = _frame_re.search(gdb_output)
-    if temp is not None:
-        frame.instruction_addr = temp.group("instruction_addr")
-        frame.name_of_function = temp.group("name_of_function")
-        frame.lineno = temp.group("lineno")
-        if temp.group("path") is None:
-            frame.path = "abs_path"
-        else:
-            frame.path = temp.group("path")
+    if temp is None:
+        return
 
+    frame.instruction_addr = temp.group("instruction_addr")
+    frame.name_of_function = temp.group("name_of_function")
+    frame.lineno = temp.group("lineno")
+    if temp.group("path") is None:
+        frame.path = "abs_path"
+    else:
+        frame.path = temp.group("path")
     return frame
 
 
 def get_image(image_string):
     """Parses the output from eu-unstrip"""
-    image = Image()
-    image.type = "elf"
-
     temp = _image_re.search(image_string)
-    if temp is not None:
-        image.image_addr = temp.group("image_addr")
-        image.image_size = int(temp.group("image_size"), 16)
-        image.code_id = temp.group("code_id")
-        image.debug_id = code_id_to_debug_id(temp.group("code_id"))
-        image.code_file = temp.group("code_file")
+    if temp is None:
+        return None
 
-    return image
+    return Image(
+        type="elf",
+        image_addr=temp.group("image_addr"),
+        image_size=int(temp.group("image_size"), 16),
+        code_id=temp.group("code_id"),
+        debug_id=code_id_to_debug_id(temp.group("code_id")),
+        code_file=temp.group("code_file"),
+    )
 
 
 @click.command()
 @click.argument("path_to_core")
 @click.argument("path_to_executable")
-@click.argument("sentry_dsn", nargs=-1, required=False)
+@click.option("--sentry-dsn", required=False)
 def main(path_to_core, path_to_executable, sentry_dsn):
 
     # Validate input Path
@@ -166,7 +168,7 @@ def main(path_to_core, path_to_executable, sentry_dsn):
 
     # execute gdb
     process = subprocess.Popen(
-        ["gdb", "-c", path_to_core, path_to_executable],
+        ["gdb", "-c", path_to_core, "-e", path_to_executable],
         stdout=subprocess.PIPE,
         stdin=subprocess.PIPE,
     )
@@ -182,15 +184,20 @@ def main(path_to_core, path_to_executable, sentry_dsn):
         ["eu-unstrip", "-n", "--core", path_to_core, "-e", path_to_executable],
         stdout=subprocess.PIPE,
     )
+
     output = process.communicate()
 
     eu_unstrip_output = str(output[0]).split("\n")
 
     for x in range(2, len(gdb_output)):
-        frame_list.append(get_frame(gdb_output[x]))
+        frame = get_frame(gdb_output[x])
+        if frame is not None:
+            frame_list.append(frame)
 
     for x in range(0, len(eu_unstrip_output) - 1):
-        image_list.append(get_image(eu_unstrip_output[x]))
+        image = get_image(eu_unstrip_output[x])
+        if image is not None:
+            image_list.append(image)
 
     # build the json for sentry
     data = {
@@ -203,13 +210,7 @@ def main(path_to_core, path_to_executable, sentry_dsn):
         "debug_meta": {"images": [ob.to_json() for ob in image_list]},
     }
 
-    if sentry_dsn is None:
-        sentry_sdk.init(
-            sentry_dsn
-            # "http://a707e782690f46ebb752810d1a08406a@host.docker.internal:8000/4"
-        )
-    else:
-        sentry_sdk.init()
+    sentry_sdk.init(sentry_dsn)
     sentry_sdk.capture_event(data)
     print("Core dump sent to sentry")
 
