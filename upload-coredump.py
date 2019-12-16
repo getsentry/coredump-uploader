@@ -48,10 +48,13 @@ _frame_re = re.compile(
     (?P<instruction_addr>
        0[xX][a-fA-F0-9]+
     )
+
     #name of function
-    (\sin)? \s?
+     (\sin)? 
+    \s?
+    (.*::)?
     (?P<name_of_function>
-        [a-zA-z]+
+       [a-zA-z]+
     )?
 
     #path from the file
@@ -59,6 +62,7 @@ _frame_re = re.compile(
     (?P<path>
      .*\.c
     )?
+
     #Number of the line
     :?
     (?P<lineno>
@@ -98,8 +102,9 @@ _image_re = re.compile(
     (\s|\s\.\s\-\s)?
     (\.\s)?   
     (-\s)*
+    \.?
     (?P<code_file>
-        [\/|.\/][\w|\S]+|\S+\.\S+|[a-zA-Z]*
+        [\/|\/][\w|\S]+|\S+\.\S+|[a-zA-Z]*
     )?
 """
 )
@@ -151,7 +156,9 @@ def get_image(image_string):
 @click.argument("path_to_core")
 @click.argument("path_to_executable")
 @click.option("--sentry-dsn", required=False)
-def main(path_to_core, path_to_executable, sentry_dsn):
+@click.option("--gdb-path", required=False)
+@click.option("--elfutils-path", required=False)
+def main(path_to_core, path_to_executable, sentry_dsn, gdb_path, elfutils_path):
 
     # Validate input Path
     if os.path.isfile(path_to_core) is not True:
@@ -160,6 +167,12 @@ def main(path_to_core, path_to_executable, sentry_dsn):
     if os.path.isfile(path_to_executable) is not True:
         error("Wrong path to executable")
 
+    if gdb_path is not None and os.path.isfile(gdb_path) is not True:
+        error("Wrong path for gdb")
+
+    if elfutils_path is not None and os.path.isfile(elfutils_path) is not True:
+        error("Wrong path for elfutils")
+
     image_list = []
     frame_list = []
 
@@ -167,11 +180,18 @@ def main(path_to_core, path_to_executable, sentry_dsn):
     eu_unstrip_output = []
 
     # execute gdb
-    process = subprocess.Popen(
-        ["gdb", "-c", path_to_core, "-e", path_to_executable],
-        stdout=subprocess.PIPE,
-        stdin=subprocess.PIPE,
-    )
+    if gdb_path is None:
+        process = subprocess.Popen(
+            ["gdb", "-c", path_to_core, path_to_executable],
+            stdout=subprocess.PIPE,
+            stdin=subprocess.PIPE,
+        )
+    else:
+        process = subprocess.Popen(
+            [gdb_path, "gdb", "-c", path_to_core, path_to_executable],
+            stdout=subprocess.PIPE,
+            stdin=subprocess.PIPE,
+        )
 
     output = re.search(r"#0.*", str(process.communicate(input="bt")))
     try:
@@ -180,10 +200,24 @@ def main(path_to_core, path_to_executable, sentry_dsn):
         error("gdb output error")
 
     # execute eu-unstrip
-    process = subprocess.Popen(
-        ["eu-unstrip", "-n", "--core", path_to_core, "-e", path_to_executable],
-        stdout=subprocess.PIPE,
-    )
+    if elfutils_path is None:
+        process = subprocess.Popen(
+            ["eu-unstrip", "-n", "--core", path_to_core, "-e", path_to_executable],
+            stdout=subprocess.PIPE,
+        )
+    else:
+        process = subprocess.Popen(
+            [
+                elfutils_path,
+                "eu-unstrip",
+                "-n",
+                "--core",
+                path_to_core,
+                "-e",
+                path_to_executable,
+            ],
+            stdout=subprocess.PIPE,
+        )
 
     output = process.communicate()
 
