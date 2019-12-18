@@ -4,9 +4,15 @@ Coredump Uploader
 Requirements:
 -------
 
+python
+
 GDB
 
 elfutils
+
+sentry-sdk
+
+click
 
 
 Usage:

@@ -10,7 +10,9 @@ import time
 
 
 class Frame:
-    def __init__(self, instruction_addr="", name_of_function="", path="", lineno=""):
+    def __init__(
+        self, instruction_addr="", name_of_function="", path="abs_path", lineno=None,
+    ):
         self.instruction_addr = instruction_addr
         self.name_of_function = name_of_function
         self.path = path
@@ -58,7 +60,7 @@ _frame_re = re.compile(
     )?
 
     #path from the file
-    (\s\(\))?  (\sat\s)?
+    (\s\(.*\))?  (\sat\s)?
     (?P<path>
      .*\.c
     )?
@@ -127,12 +129,15 @@ def get_frame(gdb_output):
         return
 
     frame.instruction_addr = temp.group("instruction_addr")
+
     frame.name_of_function = temp.group("name_of_function")
-    frame.lineno = temp.group("lineno")
-    if temp.group("path") is None:
-        frame.path = "abs_path"
-    else:
+
+    if temp.group("lineno") is not None:
+        frame.lineno = int(temp.group("lineno"))
+
+    if temp.group("path") is not None:
         frame.path = temp.group("path")
+
     return frame
 
 
@@ -167,10 +172,10 @@ def main(path_to_core, path_to_executable, sentry_dsn, gdb_path, elfutils_path):
     if os.path.isfile(path_to_executable) is not True:
         error("Wrong path to executable")
 
-    if gdb_path is not None and os.path.isfile(gdb_path) is not True:
+    if gdb_path is not None and os.path.exists(gdb_path) is not True:
         error("Wrong path for gdb")
 
-    if elfutils_path is not None and os.path.isfile(elfutils_path) is not True:
+    if elfutils_path is not None and os.path.exists(elfutils_path) is not True:
         error("Wrong path for elfutils")
 
     image_list = []
@@ -187,11 +192,14 @@ def main(path_to_core, path_to_executable, sentry_dsn, gdb_path, elfutils_path):
             stdin=subprocess.PIPE,
         )
     else:
-        process = subprocess.Popen(
-            [gdb_path, "gdb", "-c", path_to_core, path_to_executable],
-            stdout=subprocess.PIPE,
-            stdin=subprocess.PIPE,
-        )
+        try:
+            process = subprocess.Popen(
+                [gdb_path, "gdb", "-c", path_to_core, path_to_executable],
+                stdout=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+            )
+        except OSError as err:
+            error(format(err))
 
     output = re.search(r"#0.*", str(process.communicate(input="bt")))
     try:
@@ -206,24 +214,27 @@ def main(path_to_core, path_to_executable, sentry_dsn, gdb_path, elfutils_path):
             stdout=subprocess.PIPE,
         )
     else:
-        process = subprocess.Popen(
-            [
-                elfutils_path,
-                "eu-unstrip",
-                "-n",
-                "--core",
-                path_to_core,
-                "-e",
-                path_to_executable,
-            ],
-            stdout=subprocess.PIPE,
-        )
+        try:
+            process = subprocess.Popen(
+                [
+                    elfutils_path,
+                    "eu-unstrip",
+                    "-n",
+                    "--core",
+                    path_to_core,
+                    "-e",
+                    path_to_executable,
+                ],
+                stdout=subprocess.PIPE,
+            )
+        except OSError as err:
+            error(format(err))
 
     output = process.communicate()
 
     eu_unstrip_output = str(output[0]).split("\n")
 
-    for x in range(2, len(gdb_output)):
+    for x in range(1, len(gdb_output)):
         frame = get_frame(gdb_output[x])
         if frame is not None:
             frame_list.append(frame)
@@ -246,7 +257,7 @@ def main(path_to_core, path_to_executable, sentry_dsn, gdb_path, elfutils_path):
 
     sentry_sdk.init(sentry_dsn)
     sentry_sdk.capture_event(data)
-    print("Core dump sent to sentry")
+    print("Core dump sent to sentry!")
 
 
 if __name__ == "__main__":

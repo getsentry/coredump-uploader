@@ -24,7 +24,7 @@ def test_code_id_to_debug_id():
                 instruction_addr="0x000055ee7d69e60a",
                 name_of_function="crashing_function",
                 path="./test.c",
-                lineno="3",
+                lineno=3,
             ),
         ],
         [
@@ -33,7 +33,7 @@ def test_code_id_to_debug_id():
                 instruction_addr="0x000055ee7d69e61c",
                 name_of_function="main",
                 path="./test.c",
-                lineno="7",
+                lineno=7,
             ),
         ],
         [
@@ -46,10 +46,19 @@ def test_code_id_to_debug_id():
             ),
         ],
         [
-            "3  0x000055708e742643 in main ()",
+            "#1 0x0000748f47a34256 in <test::function as test::function>::event ()",
             Frame(
-                instruction_addr="0x000055708e742643",
-                name_of_function="main",
+                instruction_addr="0x0000748f47a34256",
+                name_of_function="event",
+                path="abs_path",
+                lineno=None,
+            ),
+        ],
+        [
+            "#1 0x0000748f47a34256 in test::function as test::function::event ()",
+            Frame(
+                instruction_addr="0x0000748f47a34256",
+                name_of_function="event",
                 path="abs_path",
                 lineno=None,
             ),
@@ -81,7 +90,7 @@ def test_get_frame(gdb_output, parsed):
         [
             "0x55ee7d69e000+0x201018 b814d9f87debe4b312c06a03fa8d6b44a7b41199@0x55ee7d69e284 ./a.out . a.out",
             Image(
-                code_file="./a.out",
+                code_file="/a.out",
                 code_id="b814d9f87debe4b312c06a03fa8d6b44a7b41199",
                 image_addr="0x55ee7d69e000",
                 image_size=2101272,
@@ -112,9 +121,9 @@ def test_frame_to_json():
     frame = Frame()
     assert frame.to_json() == {
         "instruction_addr": "",
-        "lineno": "",
+        "lineno": None,
         "name_of_function": "",
-        "path": "",
+        "path": "abs_path",
     }
 
 
