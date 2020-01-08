@@ -1,4 +1,5 @@
 import pytest
+import re
 
 from coredumplib import code_id_to_debug_id
 from coredumplib import get_frame
@@ -6,6 +7,7 @@ from coredumplib import Frame
 from coredumplib import get_image
 from coredumplib import Image
 from coredumplib import main
+from coredumplib import _frame_re
 
 
 def test_code_id_to_debug_id():
@@ -19,29 +21,29 @@ def test_code_id_to_debug_id():
     "gdb_output, parsed",
     [
         [
-            "0  0x000055ee7d69e60a in crashing_function () at ./test.c:3",
+            "#0  0x000055ee7d69e60a in crashing_function () at ./test.c:3",
             Frame(
                 instruction_addr="0x000055ee7d69e60a",
-                name_of_function="crashing_function",
-                path="./test.c",
+                function="crashing_function",
+                filename="./test.c",
                 lineno=3,
             ),
         ],
         [
-            "1  0x000055ee7d69e61c in main () at ./test.c:7",
+            "#1  0x000055ee7d69e61c in main () at ./test.c:7",
             Frame(
                 instruction_addr="0x000055ee7d69e61c",
-                name_of_function="main",
-                path="./test.c",
+                function="main",
+                filename="./test.c",
                 lineno=7,
             ),
         ],
         [
-            "0  0x000055a7df18760a in crashing_function ()",
+            "#0  0x000055a7df18760a in crashing_function ()",
             Frame(
                 instruction_addr="0x000055a7df18760a",
-                name_of_function="crashing_function",
-                path="abs_path",
+                function="crashing_function",
+                filename="abs_path",
                 lineno=None,
             ),
         ],
@@ -49,8 +51,8 @@ def test_code_id_to_debug_id():
             "#1 0x0000748f47a34256 in <test::function as test::function>::event ()",
             Frame(
                 instruction_addr="0x0000748f47a34256",
-                name_of_function="event",
-                path="abs_path",
+                function="<test::function as test::function>::event",
+                filename="abs_path",
                 lineno=None,
             ),
         ],
@@ -58,21 +60,21 @@ def test_code_id_to_debug_id():
             "#1 0x0000748f47a34256 in test::function as test::function::event ()",
             Frame(
                 instruction_addr="0x0000748f47a34256",
-                name_of_function="event",
-                path="abs_path",
+                function="test::function as test::function::event",
+                filename="abs_path",
                 lineno=None,
             ),
         ],
     ],
 )
 def test_get_frame(gdb_output, parsed):
-
-    frame_test = get_frame(gdb_output)
+    for match in re.finditer(_frame_re, gdb_output):
+        frame_test = get_frame(match)
 
     assert frame_test.instruction_addr == parsed.instruction_addr
-    assert frame_test.name_of_function == parsed.name_of_function
+    assert frame_test.function == parsed.function
     assert frame_test.lineno == parsed.lineno
-    assert frame_test.path == parsed.path
+    assert frame_test.filename == parsed.filename
 
 
 @pytest.mark.parametrize(
@@ -120,10 +122,11 @@ def test_get_image(unstrip_output, parsed):
 def test_frame_to_json():
     frame = Frame()
     assert frame.to_json() == {
-        "instruction_addr": "",
+        "instruction_addr": None,
         "lineno": None,
-        "name_of_function": "",
-        "path": "abs_path",
+        "function": None,
+        "filename": "abs_path",
+        "package": None,
     }
 
 
