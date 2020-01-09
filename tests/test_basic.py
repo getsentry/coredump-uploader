@@ -8,6 +8,7 @@ from coredumplib import get_image
 from coredumplib import Image
 from coredumplib import main
 from coredumplib import _frame_re
+from coredumplib import _image_re
 
 
 def test_code_id_to_debug_id():
