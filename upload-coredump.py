@@ -155,11 +155,13 @@ def error(message):
 
 
 def get_frame(temp):
-    """ """
+    """Returns a Frame"""
     frame = Frame()
-    frame.instruction_addr = temp.group("instruction_addr")
+    if temp.group("instruction_addr") is not None:
+        frame.instruction_addr = temp.group("instruction_addr")
 
-    frame.function = temp.group("function")
+    if temp.group("function") is not None:
+        frame.function = temp.group("function")
 
     if temp.group("lineno") is not None:
         frame.lineno = int(temp.group("lineno"))
@@ -173,9 +175,8 @@ def get_frame(temp):
     return frame
 
 
-def get_image(image_string):
+def get_image(temp):
     """Parses the output from eu-unstrip"""
-    temp = _image_re.search(image_string)
     if temp is None:
         return None
 
@@ -306,6 +307,7 @@ def main(
     if not "#0" in gdb_output:
         error("gdb output error")
 
+    # Get the exit Signal from the gdb-output
     try:
         type_of_event = re.search(
             r"terminated with signal (?P<type>.*),", gdb_output
@@ -336,22 +338,26 @@ def main(
         except OSError as err:
             error(format(err))
 
-    output = process.communicate()
+    output, errors = process.communicate()
+    if errors:
+        error(errors)
 
-    eu_unstrip_output = str(output[0]).split("\n")
+    eu_unstrip_output = output.decode("utf-8")
 
+    # Searches for frames in the GDB-Output
     for match in re.finditer(_frame_re, gdb_output):
         frame = get_frame(match)
         if frame is not None:
             frame_list.append(frame)
 
-    for x in range(0, len(eu_unstrip_output) - 1):
-        image = get_image(eu_unstrip_output[x])
+    # Searches for images in the Eu-Unstrip Output
+    for match in re.finditer(_image_re, eu_unstrip_output):
+        image = get_image(match)
         if image is not None:
             image_list.append(image)
 
     frame_list.reverse()
-    type_of_event = "Core"
+
     # build the json for sentry
     if all_threads:
         thread_list = get_all_threads(path_to_core, path_to_executable, gdb_path)
