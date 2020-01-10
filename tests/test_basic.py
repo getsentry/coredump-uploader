@@ -9,6 +9,8 @@ from coredumplib import Image
 from coredumplib import main
 from coredumplib import _frame_re
 from coredumplib import _image_re
+from coredumplib import Thread
+from coredumplib import Stacktrace_for_thread
 
 
 def test_code_id_to_debug_id():
@@ -31,12 +33,13 @@ def test_code_id_to_debug_id():
             ),
         ],
         [
-            "#1  0x000055ee7d69e61c in main () at ./test.c:7",
+            "#2  0x000055a7df18760a in std::test::read () from /lib/x86_64-linux-gnu/libc.so.6",
             Frame(
-                instruction_addr="0x000055ee7d69e61c",
-                function="main",
-                filename="./test.c",
-                lineno=7,
+                instruction_addr="0x000055a7df18760a",
+                function="std::test::read",
+                filename="abs_path",
+                lineno=None,
+                package="/lib/x86_64-linux-gnu/libc.so.6",
             ),
         ],
         [
@@ -112,7 +115,8 @@ def test_get_frame(gdb_output, parsed):
 )
 def test_get_image(unstrip_output, parsed):
     image_test = Image()
-    image_test = get_image(unstrip_output)
+    for match in re.finditer(_image_re, unstrip_output):
+        image_test = get_image(match)
 
     assert image_test.code_file == parsed.code_file
     assert image_test.code_id == parsed.code_id
@@ -140,4 +144,37 @@ def test_image_to_json():
         "debug_id": "",
         "code_id": "",
         "code_file": "",
+    }
+
+
+def test_stacktrace_for_thread_to_json():
+    frame = Frame(
+        instruction_addr="0x0000748f47a34256",
+        function="test::function as test::function::event",
+        filename="abs_path",
+        lineno=None,
+    )
+    stacktrace = Stacktrace_for_thread()
+    stacktrace.append_frame(frame.to_json())
+    assert stacktrace.to_json() == {
+        "frames": [
+            {
+                "instruction_addr": "0x0000748f47a34256",
+                "function": "test::function as test::function::event",
+                "filename": "abs_path",
+                "lineno": None,
+                "package": None,
+            }
+        ]
+    }
+
+
+def test_thread_to_json():
+    stacktrace = Stacktrace_for_thread()
+    thread = Thread(9, None, False, stacktrace.to_json())
+    assert thread.to_json() == {
+        "stacktrace": {"frames": []},
+        "id": 9,
+        "name": None,
+        "crashed": False,
     }
