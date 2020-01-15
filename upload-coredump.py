@@ -49,7 +49,7 @@ class Image:
         return self.__dict__
 
 
-class Stacktrace_for_thread:
+class Stacktrace:
     def __init__(self):
         self.frames = []
 
@@ -70,6 +70,9 @@ class Thread:
         self.name = name
         self.crashed = crashed
         self.stacktrace = frames
+
+    def get_stacktrace(self):
+        return self.stacktrace
 
     def to_json(self):
         return self.__dict__
@@ -176,7 +179,7 @@ def get_frame(temp):
 
 
 def get_image(temp):
-    """Parses the output from eu-unstrip"""
+    """Returns an Image"""
     if temp is None:
         return None
 
@@ -191,6 +194,7 @@ def get_image(temp):
 
 
 def get_all_threads(path_to_core, path_to_executable, gdb_path):
+    """Executes GDB and returns a list with all threads and backtraces"""
 
     thread_list = []
     counter_threads = 0
@@ -224,11 +228,21 @@ def get_all_threads(path_to_core, path_to_executable, gdb_path):
     except:
         error("gdb output error")
 
+    crashed_thread_id = re.search(
+        r"(?x)LWP\s(?P<thread_id>[a-fA-F0-9]+)", gdb_output[0]
+    )
+    try:
+        type_of_event = re.search(
+            r"terminated with signal (?P<type>.*),", gdb_output[0]
+        ).group("type")
+    except:
+        type_of_event = "Core"
+
     del gdb_output[0]
     gdb_output.reverse()
 
     for thread_backtrace in gdb_output:
-        stacktrace = Stacktrace_for_thread()
+        stacktrace = Stacktrace()
 
         # gets the Thread ID
         thread_id = re.search(r"(?x)LWP\s(?P<thread_id>[a-fA-F0-9]+)", thread_backtrace)
@@ -241,7 +255,7 @@ def get_all_threads(path_to_core, path_to_executable, gdb_path):
 
         stacktrace.reverse_list()
 
-        if counter_threads == 0:
+        if thread_id.group("thread_id") == crashed_thread_id.group("thread_id"):
             crashed = True
         else:
             crashed = False
@@ -253,7 +267,7 @@ def get_all_threads(path_to_core, path_to_executable, gdb_path):
         counter_threads += 1
 
     print("Threads found: " + str(counter_threads))
-    return thread_list
+    return thread_list, type_of_event
 
 
 @click.command()
@@ -279,41 +293,51 @@ def main(
     if elfutils_path is not None and os.path.exists(elfutils_path) is not True:
         error("Wrong path for elfutils")
 
-    image_list = []
-    frame_list = []
-
-    # execute gdb
-    if gdb_path is None:
-        process = subprocess.Popen(
-            ["gdb", "-c", path_to_core, path_to_executable],
-            stdout=subprocess.PIPE,
-            stdin=subprocess.PIPE,
-        )
-    else:
-        try:
+    if not all_threads:
+        stacktrace = Stacktrace()
+        # execute gdb
+        if gdb_path is None:
             process = subprocess.Popen(
-                [gdb_path, "gdb", "-c", path_to_core, path_to_executable],
+                ["gdb", "-c", path_to_core, path_to_executable],
                 stdout=subprocess.PIPE,
                 stdin=subprocess.PIPE,
             )
-        except OSError as err:
-            error(format(err))
+        else:
+            try:
+                process = subprocess.Popen(
+                    [gdb_path, "gdb", "-c", path_to_core, path_to_executable],
+                    stdout=subprocess.PIPE,
+                    stdin=subprocess.PIPE,
+                )
+            except OSError as err:
+                error(format(err))
 
-    output, errors = process.communicate(input="bt")
-    if errors:
-        error(errors)
+        output, errors = process.communicate(input="bt")
+        if errors:
+            error(errors)
 
-    gdb_output = output.decode("utf-8")
-    if not "#0" in gdb_output:
-        error("gdb output error")
+        gdb_output = output.decode("utf-8")
+        if not "#0" in gdb_output:
+            error("gdb output error")
 
-    # Get the exit Signal from the gdb-output
-    try:
-        type_of_event = re.search(
-            r"terminated with signal (?P<type>.*),", gdb_output
-        ).group("type")
-    except:
-        type_of_event = "Core"
+        # Get the exit Signal from the gdb-output
+        try:
+            type_of_event = re.search(
+                r"terminated with signal (?P<type>.*),", gdb_output
+            ).group("type")
+        except:
+            type_of_event = "Core"
+
+        # Searches for frames in the GDB-Output
+        if not all_threads:
+            for match in re.finditer(_frame_re, gdb_output):
+                frame = get_frame(match)
+                if frame is not None:
+                    stacktrace.append_frame(frame.to_json())
+
+            stacktrace.reverse_list()
+
+    image_list = []
 
     # execute eu-unstrip
     if elfutils_path is None:
@@ -344,30 +368,25 @@ def main(
 
     eu_unstrip_output = output.decode("utf-8")
 
-    # Searches for frames in the GDB-Output
-    for match in re.finditer(_frame_re, gdb_output):
-        frame = get_frame(match)
-        if frame is not None:
-            frame_list.append(frame)
-
     # Searches for images in the Eu-Unstrip Output
     for match in re.finditer(_image_re, eu_unstrip_output):
         image = get_image(match)
         if image is not None:
             image_list.append(image)
 
-    frame_list.reverse()
-
     # build the json for sentry
     if all_threads:
-        thread_list = get_all_threads(path_to_core, path_to_executable, gdb_path)
+        thread_list, type_of_event = get_all_threads(
+            path_to_core, path_to_executable, gdb_path
+        )
+        stacktrace = thread_list[0].get_stacktrace()
 
         data = {
             "platform": "native",
             "exception": {
                 "type": type_of_event,
                 "mechanism": {"type": "coredump", "handled": False, "synthetic": True},
-                "stacktrace": {"frames": [ob.to_json() for ob in frame_list]},
+                "stacktrace": stacktrace,
             },
             "debug_meta": {"images": [ob.to_json() for ob in image_list]},
             "threads": {"values": [ob.to_json() for ob in thread_list]},
@@ -378,7 +397,7 @@ def main(
             "exception": {
                 "type": type_of_event,
                 "mechanism": {"type": "coredump", "handled": False, "synthetic": True},
-                "stacktrace": {"frames": [ob.to_json() for ob in frame_list]},
+                "stacktrace": stacktrace.to_json(),
             },
             "debug_meta": {"images": [ob.to_json() for ob in image_list]},
         }
