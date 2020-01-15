@@ -10,7 +10,7 @@ from coredumplib import main
 from coredumplib import _frame_re
 from coredumplib import _image_re
 from coredumplib import Thread
-from coredumplib import Stacktrace_for_thread
+from coredumplib import Stacktrace
 
 
 def test_code_id_to_debug_id():
@@ -147,14 +147,14 @@ def test_image_to_json():
     }
 
 
-def test_stacktrace_for_thread_to_json():
+def test_stacktrace_to_json():
     frame = Frame(
         instruction_addr="0x0000748f47a34256",
         function="test::function as test::function::event",
         filename="abs_path",
         lineno=None,
     )
-    stacktrace = Stacktrace_for_thread()
+    stacktrace = Stacktrace()
     stacktrace.append_frame(frame.to_json())
     assert stacktrace.to_json() == {
         "frames": [
@@ -170,7 +170,7 @@ def test_stacktrace_for_thread_to_json():
 
 
 def test_thread_to_json():
-    stacktrace = Stacktrace_for_thread()
+    stacktrace = Stacktrace()
     thread = Thread(9, None, False, stacktrace.to_json())
     assert thread.to_json() == {
         "stacktrace": {"frames": []},
