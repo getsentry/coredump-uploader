@@ -11,6 +11,7 @@ from coredumplib import _frame_re
 from coredumplib import _image_re
 from coredumplib import Thread
 from coredumplib import Stacktrace
+from coredumplib import main
 
 
 def test_code_id_to_debug_id():
