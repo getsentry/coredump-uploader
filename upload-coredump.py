@@ -64,12 +64,11 @@ class Stacktrace:
 
 
 class Thread:
-    def __init__(self, id="", name=None, crashed=None, frames=None):
-        self.stacktrace = {}
+    def __init__(self, id="", name=None, crashed=None, stacktrace=None):
         self.id = id
         self.name = name
         self.crashed = crashed
-        self.stacktrace = frames
+        self.stacktrace = stacktrace
 
     def get_stacktrace(self):
         return self.stacktrace
@@ -193,13 +192,9 @@ def get_image(temp):
     )
 
 
-def get_all_threads(path_to_core, path_to_executable, gdb_path):
-    """Executes GDB and returns a list with all threads and backtraces"""
+def execute_gdb(gdb_path, path_to_core, path_to_executable):
+    """creates a subprocess for gdb and returns it"""
 
-    thread_list = []
-    counter_threads = 0
-
-    # execute gdb
     if gdb_path is None:
         process = subprocess.Popen(
             ["gdb", "-c", path_to_core, path_to_executable],
@@ -215,6 +210,15 @@ def get_all_threads(path_to_core, path_to_executable, gdb_path):
             )
         except OSError as err:
             error(err)
+
+    return process
+
+
+def get_all_threads(process):
+    """Returns a list with all threads and backtraces"""
+
+    thread_list = []
+    counter_threads = 0
 
     output, errors = process.communicate(input="thread apply all bt")
     if errors:
@@ -293,24 +297,14 @@ def main(
     if elfutils_path is not None and os.path.exists(elfutils_path) is not True:
         error("Wrong path for elfutils")
 
-    if not all_threads:
+    # execute gdb
+    process = execute_gdb(gdb_path, path_to_core, path_to_executable)
+
+    if all_threads:
+        thread_list, type_of_event = get_all_threads(process)
+
+    else:
         stacktrace = Stacktrace()
-        # execute gdb
-        if gdb_path is None:
-            process = subprocess.Popen(
-                ["gdb", "-c", path_to_core, path_to_executable],
-                stdout=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-            )
-        else:
-            try:
-                process = subprocess.Popen(
-                    [gdb_path, "gdb", "-c", path_to_core, path_to_executable],
-                    stdout=subprocess.PIPE,
-                    stdin=subprocess.PIPE,
-                )
-            except OSError as err:
-                error(format(err))
 
         output, errors = process.communicate(input="bt")
         if errors:
@@ -360,7 +354,7 @@ def main(
                 stdout=subprocess.PIPE,
             )
         except OSError as err:
-            error(format(err))
+            error(err)
 
     output, errors = process.communicate()
     if errors:
@@ -376,10 +370,10 @@ def main(
 
     # build the json for sentry
     if all_threads:
-        thread_list, type_of_event = get_all_threads(
-            path_to_core, path_to_executable, gdb_path
-        )
-        stacktrace = thread_list[0].get_stacktrace()
+
+        for temp in thread_list:
+            if temp.crashed:
+                stacktrace = temp.get_stacktrace()
 
         data = {
             "platform": "native",
