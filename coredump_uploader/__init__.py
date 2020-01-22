@@ -7,9 +7,7 @@ import sys
 import os
 import click
 import time
-
-
-__version__ = '0.1.0'
+import signal
 
 
 class Frame:
@@ -17,7 +15,7 @@ class Frame:
         self,
         instruction_addr=None,
         function=None,
-        filename="abs_path",
+        filename=None,
         lineno=None,
         package=None,
     ):
@@ -149,6 +147,16 @@ _image_re = re.compile(
     """
 )
 
+_register_re = re.compile(
+    r"""(?xi)
+    
+    # name of the register 
+    (?<register_name>[0-9a-z]+)
+    \s*
+
+    # value of the register
+    (?<register_value>0x[0-9a-f]+)"""
+)
 
 def code_id_to_debug_id(code_id):
     return str(uuid.UUID(bytes_le=binascii.unhexlify(code_id)[:16]))
@@ -236,14 +244,16 @@ def get_all_threads(process):
         error("gdb output error")
 
     crashed_thread_id = re.search(
-        r"(?x)LWP\s(?P<thread_id>[a-fA-F0-9]+)", gdb_output[0]
+        r"(?xi)\[Current\s thread\s is\s [0-9a-z]*\s\([a-z]*\s? (?P<thread_id>[a-z0-9]+) \)]",
+        gdb_output[0],
     )
+    # Get the exit Signal from the gdb-output
     try:
-        type_of_event = re.search(
-            r"terminated with signal (?P<type>.*),", gdb_output[0]
+        exit_signal = re.search(
+            r"(?i)terminated with signal (?P<type>[a-z0-9]+),", gdb_output[0]
         ).group("type")
     except:
-        type_of_event = "Core"
+        exit_signal = "Core"
 
     del gdb_output[0]
     gdb_output.reverse()
@@ -252,7 +262,10 @@ def get_all_threads(process):
         stacktrace = Stacktrace()
 
         # gets the Thread ID
-        thread_id = re.search(r"(?x)LWP\s(?P<thread_id>[a-fA-F0-9]+)", thread_backtrace)
+        thread_id = re.search(
+            r"(?xi) [0-9a-z]*\s\([a-z]*\s? (?P<thread_id>[a-fA-F0-9]+)",
+            thread_backtrace,
+        )
 
         # gets each frame from the Thread
         for match in re.finditer(_frame_re, thread_backtrace):
@@ -274,16 +287,18 @@ def get_all_threads(process):
         counter_threads += 1
 
     print("Threads found: " + str(counter_threads))
-    return thread_list, type_of_event
+    return thread_list, exit_signal
 
 
 @click.command()
 @click.argument("path_to_core")
 @click.argument("path_to_executable")
-@click.option("--sentry-dsn", required=False)
-@click.option("--gdb-path", required=False)
-@click.option("--elfutils-path", required=False)
-@click.option("--all-threads", is_flag=True)
+@click.option("--sentry-dsn", required=False, help="Your sentry dsn")
+@click.option("--gdb-path", required=False, help="Path to gdb")
+@click.option("--elfutils-path", required=False, help="Path to elfutils")
+@click.option(
+    "--all-threads", is_flag=True, help="Sends the backtrace from all threads to sentry"
+)
 def main(
     path_to_core, path_to_executable, sentry_dsn, gdb_path, elfutils_path, all_threads
 ):
@@ -304,7 +319,7 @@ def main(
     process = execute_gdb(gdb_path, path_to_core, path_to_executable)
 
     if all_threads:
-        thread_list, type_of_event = get_all_threads(process)
+        thread_list, exit_signal = get_all_threads(process)
 
     else:
         stacktrace = Stacktrace()
@@ -319,20 +334,19 @@ def main(
 
         # Get the exit Signal from the gdb-output
         try:
-            type_of_event = re.search(
-                r"terminated with signal (?P<type>.*),", gdb_output
+            exit_signal = re.search(
+                r"(?i)terminated with signal (?P<type>[a-z0-9]+),", gdb_output
             ).group("type")
         except:
-            type_of_event = "Core"
+            exit_signal = "Core"
 
         # Searches for frames in the GDB-Output
-        if not all_threads:
-            for match in re.finditer(_frame_re, gdb_output):
-                frame = get_frame(match)
-                if frame is not None:
-                    stacktrace.append_frame(frame.to_json())
+        for match in re.finditer(_frame_re, gdb_output):
+            frame = get_frame(match)
+            if frame is not None:
+                stacktrace.append_frame(frame.to_json())
 
-            stacktrace.reverse_list()
+        stacktrace.reverse_list()
 
     image_list = []
 
@@ -370,18 +384,25 @@ def main(
         image = get_image(match)
         if image is not None:
             image_list.append(image)
+    
+    # Get timestamp
+    stat = os.stat(path_to_core)
+    try:
+        timestamp = stat.st_birthtime
+    except AttributeError:
+        timestamp = stat.st_mtime
 
     # build the json for sentry
     if all_threads:
-
         for temp in thread_list:
             if temp.crashed:
                 stacktrace = temp.get_stacktrace()
+                break
 
         data = {
             "platform": "native",
             "exception": {
-                "type": type_of_event,
+                "type": "Crash",
                 "mechanism": {"type": "coredump", "handled": False, "synthetic": True},
                 "stacktrace": stacktrace,
             },
@@ -392,8 +413,13 @@ def main(
         data = {
             "platform": "native",
             "exception": {
-                "type": type_of_event,
-                "mechanism": {"type": "coredump", "handled": False, "synthetic": True},
+                "type": "Crash",
+                "mechanism": {
+                    "type": "coredump",
+                    "handled": False,
+                    "synthetic": True,
+                    "signal": {"number": None, "code": None, "name": exit_signal,},
+                },
                 "stacktrace": stacktrace.to_json(),
             },
             "debug_meta": {"images": [ob.to_json() for ob in image_list]},
