@@ -1,2 +1,13 @@
-/.venv
+# Editor
 /.vscode
+
+# Python
+/.venv
+/dist
+*.egg-info
+*.pyc
+__pycache__
+.pytest_cache
+
+# Other
+.DS_Store

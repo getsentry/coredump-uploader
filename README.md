@@ -1,30 +1,41 @@
-Coredump Uploader
-=========
+# Coredump Uploader
 
-Requirements:
--------
+## Requirements
 
-python
+- python
+- poetry
+- gdb
+- elfutils
 
-GDB
-
-elfutils
-
-sentry-sdk
-
-click
-
-
-Usage:
---------
+## Usage
 
 ````
 $ export SENTRY_DSN=https://something@your-sentry-dsn/42
-$ python upload-coredump.py /path/to/core /path/to/executable
+$ upload_coredump /path/to/core /path/to/executable
 ````
 
 OR
 
 ````
-$ python upload-coredump.py /path/to/core /path/to/executable --sentry-dsn https://something@your-sentry-dsn/42
+$ upload_coredump /path/to/core /path/to/executable --sentry-dsn https://something@your-sentry-dsn/42
 ````
+
+## Development
+
+We use Poetry for development. To get started, first install dependencies: 
+
+```
+poetry install
+```
+
+To run tests, use:
+
+```
+poetry run pytest tests/
+```
+
+To run the application:
+
+```
+poetry run upload_coredump ...
+```

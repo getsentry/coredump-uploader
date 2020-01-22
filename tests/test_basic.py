@@ -1,17 +1,17 @@
 import pytest
 import re
 
-from coredumplib import code_id_to_debug_id
-from coredumplib import get_frame
-from coredumplib import Frame
-from coredumplib import get_image
-from coredumplib import Image
-from coredumplib import main
-from coredumplib import _frame_re
-from coredumplib import _image_re
-from coredumplib import Thread
-from coredumplib import Stacktrace
-from coredumplib import main
+from coredump_uploader import code_id_to_debug_id
+from coredump_uploader import get_frame
+from coredump_uploader import Frame
+from coredump_uploader import get_image
+from coredump_uploader import Image
+from coredump_uploader import main
+from coredump_uploader import _frame_re
+from coredump_uploader import _image_re
+from coredump_uploader import Thread
+from coredump_uploader import Stacktrace
+from coredump_uploader import main
 
 
 def test_code_id_to_debug_id():
