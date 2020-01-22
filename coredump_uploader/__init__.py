@@ -93,7 +93,7 @@ _frame_re = re.compile(
     \s
     # arguments, ignored
     \([^)]*\)
-    
+
     \s*
     (?:
         # package name, without debug info
@@ -112,7 +112,7 @@ _frame_re = re.compile(
 
 _image_re = re.compile(
     r"""(?x)
-    
+
     # address of image
     (?P<image_addr>
         0[xX][a-fA-F0-9]+
@@ -138,7 +138,7 @@ _image_re = re.compile(
 
     #Code File
     (\s|\s\.\s\-\s)?
-    (\.\s)?   
+    (\.\s)?
     (-\s)*
     \.?
     (?P<code_file>
@@ -149,8 +149,8 @@ _image_re = re.compile(
 
 _register_re = re.compile(
     r"""(?xi)
-    
-    # name of the register 
+
+    # name of the register
     (?P<register_name>[0-9a-z]+)
     \s*
 
@@ -174,7 +174,7 @@ def get_frame(temp):
     if temp.group("instruction_addr") is not None:
         frame.instruction_addr = temp.group("instruction_addr")
 
-    if temp.group("function") is not None:
+    if temp.group("function") not in (None, "??"):
         frame.function = temp.group("function")
 
     if temp.group("lineno") is not None:
@@ -240,14 +240,17 @@ def get_all_threads(process):
 
     # splits gdb output to get each Thread
     try:
-        gdb_output = output.split("Thread")
+        gdb_output = output.split("\n\nThread ")
     except:
         error("gdb output error")
 
     crashed_thread_id = re.search(
-        r"(?xi)\[Current\s thread\s is\s [0-9a-z]*\s\([a-z]*\s? (?P<thread_id>[a-z0-9]+) \)]",
+        r"(?i)current thread is (?P<thread_id>\d+)",
         gdb_output[0],
     )
+    if crashed_thread_id:
+        crashed_thread_id = crashed_thread_id.group("thread_id")
+
     # Get the exit Signal from the gdb-output
     try:
         exit_signal = re.search(
@@ -263,10 +266,13 @@ def get_all_threads(process):
         stacktrace = Stacktrace()
 
         # gets the Thread ID
-        thread_id = re.search(
-            r"(?xi) [0-9a-z]*\s\([a-z]*\s? (?P<thread_id>[a-fA-F0-9]+)",
-            thread_backtrace,
-        )
+        thread_id = re.match(r"(?i)(?P<thread_id>\d+) \(thread 0x[0-9a-f]+ \((?P<thread_name>.*)\)\)", thread_backtrace)
+        if thread_id is None:
+            continue
+        else:
+            thread_name = thread_id.group("thread_name")
+            print("name: %s" % thread_name)
+            thread_id = thread_id.group("thread_id")
 
         # gets each frame from the Thread
         for match in re.finditer(_frame_re, thread_backtrace):
@@ -276,14 +282,11 @@ def get_all_threads(process):
 
         stacktrace.reverse_list()
 
-        if thread_id.group("thread_id") == crashed_thread_id.group("thread_id"):
-            crashed = True
-        else:
-            crashed = False
+        crashed = thread_id == crashed_thread_id
 
         # appends a Thread to the thread_list
         thread_list.append(
-            Thread(thread_id.group("thread_id"), None, crashed, stacktrace.to_json())
+            Thread(thread_id, thread_name, crashed, stacktrace.to_json())
         )
         counter_threads += 1
 
@@ -385,7 +388,7 @@ def main(
         image = get_image(match)
         if image is not None:
             image_list.append(image)
-    
+
     # Get timestamp
     stat = os.stat(path_to_core)
     try:
