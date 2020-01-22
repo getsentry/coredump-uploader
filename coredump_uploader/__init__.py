@@ -151,11 +151,12 @@ _register_re = re.compile(
     r"""(?xi)
     
     # name of the register 
-    (?<register_name>[0-9a-z]+)
+    (?P<register_name>[0-9a-z]+)
     \s*
 
     # value of the register
-    (?<register_value>0x[0-9a-f]+)"""
+    (?P<register_value>0x[0-9a-f]+)
+    """
 )
 
 def code_id_to_debug_id(code_id):

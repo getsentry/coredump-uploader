@@ -38,7 +38,7 @@ def test_code_id_to_debug_id():
             Frame(
                 instruction_addr="0x000055a7df18760a",
                 function="std::test::read",
-                filename="abs_path",
+                filename=None,
                 lineno=None,
                 package="/lib/x86_64-linux-gnu/libc.so.6",
             ),
@@ -48,7 +48,7 @@ def test_code_id_to_debug_id():
             Frame(
                 instruction_addr="0x000055a7df18760a",
                 function="crashing_function",
-                filename="abs_path",
+                filename=None,
                 lineno=None,
             ),
         ],
@@ -57,7 +57,7 @@ def test_code_id_to_debug_id():
             Frame(
                 instruction_addr="0x0000748f47a34256",
                 function="<test::function as test::function>::event",
-                filename="abs_path",
+                filename=None,
                 lineno=None,
             ),
         ],
@@ -66,8 +66,18 @@ def test_code_id_to_debug_id():
             Frame(
                 instruction_addr="0x0000748f47a34256",
                 function="test::function as test::function::event",
-                filename="abs_path",
+                filename=None,
                 lineno=None,
+            ),
+        ],
+        [
+            "#2  0x000055ee7d69e60a in std::test::read(char*) () from /usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+            Frame(
+                instruction_addr="0x000055ee7d69e60a",
+                function="std::test::read(char*)",
+                filename=None,
+                lineno=None,
+                package="/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
             ),
         ],
     ],
@@ -131,7 +141,7 @@ def test_frame_to_json():
         "instruction_addr": None,
         "lineno": None,
         "function": None,
-        "filename": "abs_path",
+        "filename": None,
         "package": None,
     }
 
@@ -152,7 +162,7 @@ def test_stacktrace_to_json():
     frame = Frame(
         instruction_addr="0x0000748f47a34256",
         function="test::function as test::function::event",
-        filename="abs_path",
+        filename=None,
         lineno=None,
     )
     stacktrace = Stacktrace()
@@ -162,7 +172,7 @@ def test_stacktrace_to_json():
             {
                 "instruction_addr": "0x0000748f47a34256",
                 "function": "test::function as test::function::event",
-                "filename": "abs_path",
+                "filename": None,
                 "lineno": None,
                 "package": None,
             }
