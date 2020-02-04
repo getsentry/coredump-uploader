@@ -9,6 +9,7 @@ import click
 import time
 import datetime
 import signal
+import copy
 
 
 class Frame:
@@ -85,8 +86,18 @@ class Thread:
         return self.stacktrace
 
     def to_json(self):
-        if self.stacktrace is not None:
+        if self.stacktrace is not None and isinstance(self.stacktrace, Stacktrace):
             self.stacktrace = self.stacktrace.to_json()
+        return self.__dict__
+
+
+class CrashedThread:
+    def __init__(self, id="", name=None, crashed=False):
+        self.id = id
+        self.name = name
+        self.crashed = crashed
+
+    def to_json(self):
         return self.__dict__
 
 
@@ -260,12 +271,15 @@ def get_all_threads(gdb_output):
 
     thread_list = []
     counter_threads = 0
+    stacktrace_temp = None
 
     crashed_thread_id = re.search(
         r"(?i)current thread is (?P<thread_id>\d+)", gdb_output,
     )
     if crashed_thread_id:
         crashed_thread_id = crashed_thread_id.group("thread_id")
+    else:
+        crashed_thread_id = "1"
 
     # Get the exit Signal from the gdb-output
     exit_signal = re.search(_exit_signal_re, gdb_output)
@@ -298,12 +312,20 @@ def get_all_threads(gdb_output):
         crashed = thread_id == crashed_thread_id
 
         # Appends a Thread to the thread_list
-        thread_list.append(Thread(thread_id, thread_name, crashed, stacktrace))
+        if crashed:
+            thread_list.append(CrashedThread(thread_id, thread_name, crashed))
+            stacktrace_temp = stacktrace
+        else:
+            thread_list.append(Thread(thread_id, thread_name, crashed, stacktrace))
+
+        if not stacktrace_temp:
+            stacktrace_temp = stacktrace
+
         counter_threads += 1
 
     thread_list.reverse()
     print("Threads found: " + str(counter_threads))
-    return thread_list, exit_signal
+    return thread_list, exit_signal, stacktrace_temp, crashed_thread_id
 
 
 @click.command()
@@ -335,11 +357,13 @@ def main(
         gdb_output = execute_gdb(
             gdb_path, path_to_core, path_to_executable, "thread apply all bt"
         )
-        thread_list, exit_signal = get_all_threads(gdb_output)
+        thread_list, exit_signal, stacktrace, crashed_thread_id = get_all_threads(
+            gdb_output
+        )
 
     else:
         stacktrace = Stacktrace()
-
+        crashed_thread_id = None
         gdb_output = execute_gdb(gdb_path, path_to_core, path_to_executable, "bt")
         if not "#0" in gdb_output:
             error("gdb output error")
@@ -366,14 +390,9 @@ def main(
 
     for match in re.finditer(_register_re, gdb_output):
         if match is not None:
-            if all_threads:
-                thread_list[0].stacktrace.ad_register(
-                    match.group("register_name"), match.group("register_value")
-                )
-            else:
-                stacktrace.ad_register(
-                    match.group("register_name"), match.group("register_value")
-                )
+            stacktrace.ad_register(
+                match.group("register_name"), match.group("register_value")
+            )
 
     image_list = []
 
@@ -415,9 +434,9 @@ def main(
     # Get timestamp
     stat = os.stat(path_to_core)
     try:
-        timestamp = stat.st_birthtime
-    except AttributeError:
         timestamp = stat.st_mtime
+    except AttributeError:
+        timestamp = None
 
     # Get signal Number from signal name
     try:
@@ -437,21 +456,9 @@ def main(
 
     # Gets the stacktrace from the thread_list
     if all_threads:
-        stacktrace = None
-        for temp in thread_list:
-            if temp.crashed:
-                stacktrace = temp.get_stacktrace()
-                break
-
-        if stacktrace is None:
-            stacktrace = thread_list[0].get_stacktrace()
-            thread_list[0].crashed = True
-
         for i, thread in enumerate(thread_list):
-            try:
-                thread_list[i] = thread.to_json()
-            except:
-                continue
+            thread_list[i] = thread.to_json()
+
     else:
         thread_list = None
 
@@ -463,7 +470,8 @@ def main(
         "timestamp": timestamp,
         "platform": "native",
         "exception": {
-            "type": "Crash",
+            "type": exit_signal,
+            "thread_id": crashed_thread_id,
             "mechanism": {
                 "type": "coredump",
                 "handled": False,
@@ -483,7 +491,8 @@ def main(
         "sdk": {"name": sdk_name, "version": sdk_version,},
     }
 
-    sentry_sdk.init(sentry_dsn)
+    sentry_sdk.init(sentry_dsn, max_breadcrumbs=0)
+    sentry_sdk.integrations.modules.ModulesIntegration = None
     event_id = sentry_sdk.capture_event(data)
     print("Core dump sent to sentry: %s" % (event_id,))
 
