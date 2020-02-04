@@ -137,13 +137,19 @@ def test_get_image(unstrip_output, parsed):
 
 
 def test_frame_to_json():
-    frame = Frame()
+    frame = Frame(
+        0x000055EE7D69E60A,
+        "std::test::read(char*)",
+        None,
+        None,
+        "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
+    )
     assert frame.to_json() == {
-        "instruction_addr": None,
+        "instruction_addr": 0x000055EE7D69E60A,
         "lineno": None,
-        "function": None,
+        "function": "std::test::read(char*)",
         "filename": None,
-        "package": None,
+        "package": "/usr/lib/x86_64-linux-gnu/libstdc++.so.6",
     }
 
 
@@ -241,34 +247,17 @@ Thread 3 (Thread 0x5846 (LWP 40)):
     ],
 )
 def test_get_all_threads(gdb_output):
-    ls, exit_signal = get_all_threads(gdb_output)
+    thread_list, exit_signal, stacktrace, crashed_thread_id = get_all_threads(
+        gdb_output
+    )
     assert exit_signal == "SIGSEGV"
-    assert ls[2].to_json() == {
+    assert thread_list[2].to_json() == {
         "id": "1",
         "name": "LWP 3421",
         "crashed": True,
-        "stacktrace": {
-            "frames": [
-                {
-                    "instruction_addr": "0x000055931ccfe61c",
-                    "function": "main",
-                    "filename": "test.c",
-                    "lineno": 7,
-                    "package": None,
-                },
-                {
-                    "instruction_addr": "0x000055931ccfe60a",
-                    "function": "crashing_function",
-                    "filename": "test.c",
-                    "lineno": 3,
-                    "package": None,
-                },
-            ],
-            "registers": {},
-        },
     }
 
-    assert ls[1].to_json() == {
+    assert thread_list[1].to_json() == {
         "id": "2",
         "name": "LWP 45",
         "crashed": False,
@@ -293,7 +282,7 @@ def test_get_all_threads(gdb_output):
         },
     }
 
-    assert ls[0].to_json() == {
+    assert thread_list[0].to_json() == {
         "id": "3",
         "name": "LWP 40",
         "crashed": False,
@@ -317,3 +306,24 @@ def test_get_all_threads(gdb_output):
             "registers": {},
         },
     }
+
+    assert stacktrace.to_json() == {
+        "frames": [
+            {
+                "instruction_addr": "0x000055931ccfe61c",
+                "function": "main",
+                "filename": "test.c",
+                "lineno": 7,
+                "package": None,
+            },
+            {
+                "instruction_addr": "0x000055931ccfe60a",
+                "function": "crashing_function",
+                "filename": "test.c",
+                "lineno": 3,
+                "package": None,
+            },
+        ],
+        "registers": {},
+    }
+    assert crashed_thread_id == "1"
