@@ -6,13 +6,12 @@ from coredump_uploader import get_frame
 from coredump_uploader import Frame
 from coredump_uploader import get_image
 from coredump_uploader import Image
-from coredump_uploader import main
 from coredump_uploader import _frame_re
 from coredump_uploader import _image_re
 from coredump_uploader import Thread
 from coredump_uploader import Stacktrace
-from coredump_uploader import main
-from coredump_uploader import get_all_threads
+from coredump_uploader import get_threads
+from coredump_uploader import signal_name_to_signal_number
 
 
 def test_code_id_to_debug_id():
@@ -246,9 +245,9 @@ Thread 3 (Thread 0x5846 (LWP 40)):
             """
     ],
 )
-def test_get_all_threads(gdb_output):
-    thread_list, exit_signal, stacktrace, crashed_thread_id = get_all_threads(
-        gdb_output
+def test_get_threads(gdb_output):
+    thread_list, exit_signal, stacktrace, crashed_thread_id = get_threads(
+        gdb_output, True
     )
     assert exit_signal == "SIGSEGV"
     assert thread_list[2].to_json() == {

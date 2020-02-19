@@ -8,6 +8,7 @@ authors = ["Dominik Rindhauser <dominik.rindhauser@sentry.io>"]
 python = "^2.7"
 sentry-sdk = "^0.14.1"
 click = "^7.0"
+watchdog = "^0.8.2"
 
 [tool.poetry.dev-dependencies]
 pytest = "^4.6.9"

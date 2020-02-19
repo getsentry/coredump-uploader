@@ -9,15 +9,23 @@
 
 ## Usage
 
+### Upload coredump
+
 ````
 $ export SENTRY_DSN=https://something@your-sentry-dsn/42
-$ upload_coredump /path/to/core /path/to/executable
+$ upload_coredump /path/to/core upload /path/to/executable
 ````
 
 OR
 
 ````
-$ upload_coredump /path/to/core /path/to/executable --sentry-dsn https://something@your-sentry-dsn/42
+$ upload_coredump --sentry-dsn https://something@your-sentry-dsn/42 /path/to/executable upload /path/to/core 
+````
+
+### Watch for coredumps
+
+````
+$ upload_coredump --sentry-dsn https://something@your-sentry-dsn/42 /path/to/executable watch /path/to/dir 
 ````
 
 ## Development
