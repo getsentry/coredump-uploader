@@ -42,6 +42,7 @@ class Image:
         debug_id="",
         code_id="",
         code_file="",
+        arch="",
     ):
         self.type = type
         self.image_addr = image_addr
@@ -49,6 +50,7 @@ class Image:
         self.debug_id = debug_id
         self.code_id = code_id
         self.code_file = code_file
+        self.arch = arch
 
     def to_json(self):
         return self.__dict__
@@ -235,7 +237,7 @@ def get_image(temp):
     )
 
 
-def get_threads(gdb_output, all_threads):
+def get_threads(gdb_output):
     """Returns a list with all threads and backtraces"""
     thread_list = []
     counter_threads = 0
@@ -282,11 +284,28 @@ def get_threads(gdb_output, all_threads):
         counter_threads += 1
 
     thread_list.reverse()
-    if not all_threads and len(thread_list) > 1:
-        del thread_list[1:]
-    if all_threads:
-        print("Threads found: " + str(counter_threads))
+    print("Threads found: " + str(counter_threads))
     return thread_list, exit_signal, stacktrace_temp, crashed_thread_id
+
+
+def get_stacktrace(gdb_output):
+    """Returns the stacktrace and the exit signal """
+    if not "#0" in gdb_output:
+        error("gdb output error")
+    stacktrace = Stacktrace()
+    # Get the exit Signal from the gdb-output
+    exit_signal = re.search(_exit_signal_re, gdb_output)
+    if exit_signal:
+        exit_signal = exit_signal.group("type")
+    else:
+        exit_signal = "Core"
+    # Searches for frames in the GDB-Output
+    for match in re.finditer(_frame_re, gdb_output):
+        frame = get_frame(match)
+        if frame is not None:
+            stacktrace.append_frame(frame)
+    stacktrace.reverse_list()
+    return stacktrace, exit_signal
 
 
 def error(message):
@@ -314,7 +333,7 @@ def signal_name_to_signal_number(signal_name):
         exit_signal_number = subprocess.check_output(["kill", temp])
     except AttributeError:
         exit_signal_number = None
-        
+
     return exit_signal_number
 
 
@@ -350,26 +369,6 @@ class CoredumpUploader(object):
         self.gdb_path = gdb_path
         self.elfutils_path = elfutils_path
         self.all_threads = all_threads
-
-    def get_stacktrace(self, gdb_output):
-        """Returns the stacktrace and the exit signal """
-        if not "#0" in gdb_output:
-            error("gdb output error")
-        stacktrace = Stacktrace()
-        # Get the exit Signal from the gdb-output
-        exit_signal = re.search(_exit_signal_re, gdb_output)
-        if exit_signal:
-            exit_signal = exit_signal.group("type")
-        else:
-            exit_signal = "Core"
-        # Searches for frames in the GDB-Output
-        for match in re.finditer(_frame_re, gdb_output):
-            frame = get_frame(match)
-            if frame is not None:
-                stacktrace.append_frame(frame)
-        stacktrace.reverse_list()
-
-        return stacktrace, exit_signal
 
     def execute_gdb(self, path_to_core, gdb_command):
         """creates a subprocess for gdb and returns the output from gdb"""
@@ -413,13 +412,13 @@ class CoredumpUploader(object):
         return output.decode("utf-8")
 
     def get_registers(self, path_to_core, stacktrace):
-        """Returns the stacktrace with the registers, the signal and the message."""
+        """Returns the stacktrace with the registers, the gdb-version and the message."""
         gdb_output = self.execute_gdb(path_to_core, "info registers")
         gdb_version = re.match(r"GNU gdb \(.*?\) (?P<gdb_version>.*)", gdb_output)
         if gdb_version:
             gdb_version = gdb_version.group("gdb_version")
 
-        message = re.search(r"(?P<message>Core was generated .*\n.*) ", gdb_output)
+        message = re.search(r"(?P<message>Core was generated .*\n.*)", gdb_output)
         if message:
             message = message.group("message")
 
@@ -440,10 +439,16 @@ class CoredumpUploader(object):
         if os.path.isfile(path_to_core) is not True:
             error("Wrong path to coredump")
 
-        gdb_output = self.execute_gdb(path_to_core, "thread apply all bt")
-        (thread_list, exit_signal, stacktrace, crashed_thread_id,) = get_threads(
-            gdb_output, self.all_threads
-        )
+        if self.all_threads:
+            gdb_output = self.execute_gdb(path_to_core, "thread apply all bt")
+            (thread_list, exit_signal, stacktrace, crashed_thread_id,) = get_threads(
+                gdb_output
+            )
+        else:
+            gdb_output = self.execute_gdb(path_to_core, "bt")
+            stacktrace, exit_signal = get_stacktrace(gdb_output)
+            thread_list = None
+            crashed_thread_id = None
 
         # gets the registers, the gdb-version and the message
         stacktrace, gdb_version, message = self.get_registers(path_to_core, stacktrace)
@@ -462,13 +467,6 @@ class CoredumpUploader(object):
 
         # Get signal Number from signal name
         exit_signal_number = signal_name_to_signal_number(exit_signal)
-
-        # Make the image_list and thread_list to json
-        for i, image in enumerate(image_list):
-            try:
-                image_list[i] = image.to_json()
-            except:
-                continue
 
         # Get elfutils version
         process = subprocess.Popen(
@@ -490,8 +488,8 @@ class CoredumpUploader(object):
             ["uname", "-s", "-r"], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
         os_context, err = process.communicate()
+        os_context = re.search(r"(?P<name>.*?) (?P<version>.*)", os_context)
         if os_context:
-            os_context = re.search(r"(?P<name>.*?) (?P<version>.*)", os_context)
             os_name = os_context.group("name")
             os_version = os_context.group("version")
         else:
@@ -502,9 +500,44 @@ class CoredumpUploader(object):
         )
         os_raw_context, err = process.communicate()
 
+        # Get App Contex
+        process = subprocess.Popen(
+            ["file", path_to_core], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
+        )
+        app_context, err = process.communicate()
+        app_context = re.search(
+            r"from '.*?( (?P<args>.*))?', .* execfn: '.*\/(?P<app_name>.*?)', platform: '(?P<arch>.*?)'",
+            app_context,
+        )
+        if app_context:
+            args = app_context.group("args")
+            app_name = app_context.group("app_name")
+            arch = app_context.group("arch")
+
         # Make a json from the Thread_list
-        for i, thread in enumerate(thread_list):
-            thread_list[i] = thread.to_json()
+        if thread_list:
+            for i, thread in enumerate(thread_list):
+                thread_list[i] = thread.to_json()
+
+        # Make the image_list to json
+        for i, image in enumerate(image_list):
+            try:
+                if arch:
+                    image_list[i].arch = arch
+                image_list[i] = image.to_json()
+            except:
+                continue
+
+        # Get value, exception from message
+        message = re.search(
+            r"(?P<message>.*)\n(?P<value>.*?, (?P<type>.*?)\.)", message
+        )
+        if message:
+            value_exception = message.group("value")
+            type_exception = message.group("type")
+            message = message.group("message")
+        if type_exception is None:
+            type_exception = exit_signal
 
         # Build the json for sentry
         sentry_sdk.integrations.modules.ModulesIntegration = None
@@ -516,9 +549,10 @@ class CoredumpUploader(object):
             "event_id": event_id,
             "timestamp": timestamp,
             "platform": "native",
+            "message": {"message": message,},
             "exception": {
-                "value": message,
-                "type": exit_signal,
+                "value": value_exception,
+                "type": type_exception,
                 "thread_id": crashed_thread_id,
                 "mechanism": {
                     "type": "coredump",
@@ -547,6 +581,7 @@ class CoredumpUploader(object):
                     "raw_description": os_raw_context,
                 },
                 "runtime": None,
+                "app": {"app_name": app_name, "argv": args,},
             },
             "debug_meta": {"images": image_list},
             "threads": {"values": thread_list},
@@ -607,7 +642,7 @@ def watch(context, watch_dir):
     observer.schedule(handler, watch_dir, recursive=False)
     observer.start()
 
-    print("Watchdog started, looking for new coredumps in dir: %s" % watch_dir)
+    print("Watchdog started, looking for new coredumps in : %s" % watch_dir)
     print("Press ctrl+c to stop\n")
 
     try:
