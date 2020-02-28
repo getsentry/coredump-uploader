@@ -1,5 +1,8 @@
 # Coredump Uploader
 
+This utility can upload core dumps to Sentry.  It can either upload a single core dump or watch a folder
+for incoming core dumps to automatically upload them as they happen.
+
 ## Requirements
 
 - python

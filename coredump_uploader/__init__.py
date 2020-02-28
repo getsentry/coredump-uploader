@@ -601,7 +601,11 @@ class CoredumpUploader(object):
 )
 @click.pass_context
 def cli(context, path_to_executable, sentry_dsn, gdb_path, elfutils_path, all_threads):
-    """Initialize Sentry-dsn and Coredump-uploader"""
+    """Sentry coredump uploader
+
+    This utility can upload core dumps to sentry by stack walking them with the help
+    of GDB.
+    """
     sentry_sdk.init(sentry_dsn, max_breadcrumbs=0)
     uploader = CoredumpUploader(
         path_to_executable, sentry_dsn, gdb_path, elfutils_path, all_threads
