@@ -198,6 +198,7 @@ _thread_re = re.compile(
 
 
 def code_id_to_debug_id(code_id):
+    code_id += "00"*16
     return str(uuid.UUID(bytes_le=binascii.unhexlify(code_id)[:16]))
 
 
@@ -382,7 +383,7 @@ class CoredumpUploader(object):
         except OSError as err:
             error(err)
 
-        output, errors = process.communicate(input=gdb_command)
+        output, errors = process.communicate(input=gdb_command.encode("utf-8"))
         if errors:
             error(errors)
 
@@ -475,6 +476,7 @@ class CoredumpUploader(object):
             stdin=subprocess.PIPE,
         )
         elfutils_version, err = process.communicate()
+        elfutils_version = elfutils_version.decode("utf-8")
         if err:
             print(err)
 
@@ -488,6 +490,7 @@ class CoredumpUploader(object):
             ["uname", "-s", "-r"], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
         os_context, err = process.communicate()
+        os_context = os_context.decode("utf-8")
         os_context = re.search(r"(?P<name>.*?) (?P<version>.*)", os_context)
         if os_context:
             os_name = os_context.group("name")
@@ -499,12 +502,15 @@ class CoredumpUploader(object):
             ["uname", "-a"], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
         os_raw_context, err = process.communicate()
+        os_raw_context = os_raw_context.decode("utf-8")
 
         # Get App Contex
         process = subprocess.Popen(
             ["file", path_to_core], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
+        args = app_name = arch = ""
         app_context, err = process.communicate()
+        app_context = app_context.decode("utf-8")
         app_context = re.search(
             r"from '.*?( (?P<args>.*))?', .* execfn: '.*\/(?P<app_name>.*?)', platform: '(?P<arch>.*?)'",
             app_context,
