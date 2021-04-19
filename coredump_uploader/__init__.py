@@ -590,9 +590,11 @@ class CoredumpUploader(object):
                 "app": {"app_name": app_name, "argv": args,},
             },
             "debug_meta": {"images": image_list},
-            "threads": {"values": thread_list},
             "sdk": {"name": sdk_name, "version": sdk_version,},
         }
+        if thread_list:
+            data["threads"] = {"values": thread_list}
+
         event_id = sentry_sdk.capture_event(data)
         print("Core dump sent to sentry: %s" % (event_id))
 
