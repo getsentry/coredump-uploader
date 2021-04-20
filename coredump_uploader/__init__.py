@@ -13,6 +13,12 @@ import logging
 from watchdog.observers import Observer
 from watchdog.events import RegexMatchingEventHandler
 
+if sys.version_info >= (3, 0):
+    def decode(s):
+        return s.decode("utf-8", errors="replace")
+else:
+    def decode(s):
+        return s
 
 class Frame:
     def __init__(
@@ -198,6 +204,7 @@ _thread_re = re.compile(
 
 
 def code_id_to_debug_id(code_id):
+    code_id += "00"*16
     return str(uuid.UUID(bytes_le=binascii.unhexlify(code_id)[:16]))
 
 
@@ -382,11 +389,11 @@ class CoredumpUploader(object):
         except OSError as err:
             error(err)
 
-        output, errors = process.communicate(input=gdb_command)
+        output, errors = process.communicate(input=gdb_command.encode("utf-8"))
         if errors:
             error(errors)
 
-        return output.decode("utf-8")
+        return decode(output)
 
     def execute_elfutils(self, path_to_core):
         """Executes eu-unstrip & returns the output"""
@@ -409,7 +416,7 @@ class CoredumpUploader(object):
         if errors:
             error(errors)
 
-        return output.decode("utf-8")
+        return decode(output)
 
     def get_registers(self, path_to_core, stacktrace):
         """Returns the stacktrace with the registers, the gdb-version and the message."""
@@ -475,6 +482,7 @@ class CoredumpUploader(object):
             stdin=subprocess.PIPE,
         )
         elfutils_version, err = process.communicate()
+        elfutils_version = decode(elfutils_version)
         if err:
             print(err)
 
@@ -488,6 +496,7 @@ class CoredumpUploader(object):
             ["uname", "-s", "-r"], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
         os_context, err = process.communicate()
+        os_context = decode(os_context)
         os_context = re.search(r"(?P<name>.*?) (?P<version>.*)", os_context)
         if os_context:
             os_name = os_context.group("name")
@@ -499,12 +508,15 @@ class CoredumpUploader(object):
             ["uname", "-a"], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
         os_raw_context, err = process.communicate()
+        os_raw_context = decode(os_raw_context)
 
         # Get App Contex
         process = subprocess.Popen(
             ["file", path_to_core], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
+        args = app_name = arch = ""
         app_context, err = process.communicate()
+        app_context = decode(app_context)
         app_context = re.search(
             r"from '.*?( (?P<args>.*))?', .* execfn: '.*\/(?P<app_name>.*?)', platform: '(?P<arch>.*?)'",
             app_context,
@@ -584,9 +596,11 @@ class CoredumpUploader(object):
                 "app": {"app_name": app_name, "argv": args,},
             },
             "debug_meta": {"images": image_list},
-            "threads": {"values": thread_list},
             "sdk": {"name": sdk_name, "version": sdk_version,},
         }
+        if thread_list:
+            data["threads"] = {"values": thread_list}
+
         event_id = sentry_sdk.capture_event(data)
         print("Core dump sent to sentry: %s" % (event_id))
 
