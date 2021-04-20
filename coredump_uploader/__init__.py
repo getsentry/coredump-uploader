@@ -13,6 +13,12 @@ import logging
 from watchdog.observers import Observer
 from watchdog.events import RegexMatchingEventHandler
 
+if sys.version_info >= (3, 0):
+    def decode(s):
+        return s.decode("utf-8", errors="replace")
+else:
+    def decode(s):
+        return s
 
 class Frame:
     def __init__(
@@ -387,7 +393,7 @@ class CoredumpUploader(object):
         if errors:
             error(errors)
 
-        return output.decode("utf-8")
+        return decode(output)
 
     def execute_elfutils(self, path_to_core):
         """Executes eu-unstrip & returns the output"""
@@ -410,7 +416,7 @@ class CoredumpUploader(object):
         if errors:
             error(errors)
 
-        return output.decode("utf-8")
+        return decode(output)
 
     def get_registers(self, path_to_core, stacktrace):
         """Returns the stacktrace with the registers, the gdb-version and the message."""
@@ -476,7 +482,7 @@ class CoredumpUploader(object):
             stdin=subprocess.PIPE,
         )
         elfutils_version, err = process.communicate()
-        elfutils_version = elfutils_version.decode("utf-8")
+        elfutils_version = decode(elfutils_version)
         if err:
             print(err)
 
@@ -490,7 +496,7 @@ class CoredumpUploader(object):
             ["uname", "-s", "-r"], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
         os_context, err = process.communicate()
-        os_context = os_context.decode("utf-8")
+        os_context = decode(os_context)
         os_context = re.search(r"(?P<name>.*?) (?P<version>.*)", os_context)
         if os_context:
             os_name = os_context.group("name")
@@ -502,7 +508,7 @@ class CoredumpUploader(object):
             ["uname", "-a"], stdout=subprocess.PIPE, stdin=subprocess.PIPE,
         )
         os_raw_context, err = process.communicate()
-        os_raw_context = os_raw_context.decode("utf-8")
+        os_raw_context = decode(os_raw_context)
 
         # Get App Contex
         process = subprocess.Popen(
@@ -510,7 +516,7 @@ class CoredumpUploader(object):
         )
         args = app_name = arch = ""
         app_context, err = process.communicate()
-        app_context = app_context.decode("utf-8")
+        app_context = decode(app_context)
         app_context = re.search(
             r"from '.*?( (?P<args>.*))?', .* execfn: '.*\/(?P<app_name>.*?)', platform: '(?P<arch>.*?)'",
             app_context,
