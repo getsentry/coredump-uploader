@@ -337,11 +337,12 @@ def signal_name_to_signal_number(signal_name):
         temp = str(
             "-l" + re.match(r"SIG(?P<exit_signal>.*)", signal_name).group("exit_signal")
         )
-        exit_signal_number = subprocess.check_output(["kill", temp])
-    except AttributeError:
-        exit_signal_number = None
+        # kill can be a shell builtin, or not even present...
+        exit_signal_number = subprocess.check_output(["kill", temp], shell=True)
+    except (AttributeError, subprocess.CalledProcessError):
+        return None
 
-    return exit_signal_number
+    return int(exit_signal_number)
 
 
 class CoredumpHandler(RegexMatchingEventHandler):
@@ -572,7 +573,7 @@ class CoredumpUploader(object):
                     "synthetic": True,
                     "meta": {
                         "signal": {
-                            "number": int(exit_signal_number),
+                            "number": exit_signal_number,
                             "code": None,
                             "name": exit_signal,
                         },
